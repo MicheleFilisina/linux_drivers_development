@@ -2,46 +2,95 @@
 #include <linux/module.h>
 #include <linux/kernel.h> /*kernel version of the standard library*/
 #include <linux/fs.h> /*structures and function pointers to menage files*/
+#include <linux/cdev.h> /*define a structure to rapresent a char device*/
 
-#Include <scull.h> // file with all definitions and macros
+#Include "scull.h" // file with all definitions and macros
 
 int scull_major = SCULL_MAJOR;
 int scull_minor = 0;
-int scull_nr_dev =
+int scull_nr_dev = 1;
 dev_t dev_number;
 
+struct scull_dev * scull_devices; // scull_dev is a structure that rapresents the device and its internal data
+
+struct cdev * scull;
+
 module_param(scull_major, int, S_IRUGO);
+module_param(scull_nr_dev, int, S_IRUGO);
+
+struct file_operations scull_fops = {
+  .owner = THIS_MODULE,
+  .llseek = scull_llseek,
+  .read = scull_read,
+  .write = scull_write,
+  .ioctl = scull_ioctl,
+  .opem = scull_open,
+  .release = scull_release,
+};
 
 
 
-static char * whom = "world";
-static int howmany = 1;
-module_param(whom, charp, S_IRUGO);
-module_param(howmany, int, S_IRUGO);
 
+static void setup_cdev(struct scull_dev *dev, int index){
+  int err;
+  int devno = MKDEV(scull_major, scull_minor + index1);
 
+  cdev_init(&dev->cdev, &scull_fops);
+  dev->cdev.owner = THIS_MODULE;
+  dev->cdev.ops = &scull_fops;
+  err = cdev_add(&dev->cdev, devno,1);
+  if (err) printk(KERN_NOTICE "Error %d adding scull%d", err, index);
+}
+
+static void scull_open(struct inode *inode, struct file *filp){
+  struct scull_dev *dev;
+  dev = container_of(inode->i_cdev, struct scull_dev, cdev);
+  filp->private_data = dev;
+
+  // Reset the data of the device to 0 if open was write-only
+  if((filp->f_flags & O_ACCMODE) == _WRONLY){
+    scull_trim(dev);
+  }
+  return 0;
+}
 
 static int scull_init(void){
-  dev_t dev_number;
+  dev_t dev_number = 0;
   int result;
   
   if(scull_major){
-    dev_number(scull_major, scull_minor);
+    dev_number = MKDEV(scull_major, scull_minor);
     result = register_chrdev_region(dev_number, scull_nr_dev, "scull"); // statically register device number from scull_major
   }else{
     result = alloc_chrdev_region(&dev_number, scull_minor, scull_nr_dev, "scull"); // dinamically register device numbers, the major will be chosen randomically
-    scull_major = MAJOR(dev);
+    scull_major = MAJOR(dev_number);
+  }
+  if(result<0){
+    printk(KERN_WARNING "scull: can't get major number %d \n", scull_major);
+    return result;
+  }
+
+  // allocate the structures for deviced -- scull_nr_dev structures
+  scull_devices = kmalloc(scull_nr_dev * sizeof(struct scull_dev), GFP_KERNEL);
+
+  if(!*scull_devices){
+    result = -ENOMEM;
+    goto fail;
   }
   
   return 0;
+
+ fail:
+  scull_cleanup();
+  return result;
 }
 
 static void scull_cleanup(void){
   
 }
 
-module_init(hello_init);
-module_exit(hello_exit);
+module_init(scull_init);
+module_exit(scull_cleanup);
 
 MODULE_LICENSE("Dual BSD/GPL");
 MODULE_DESCRIPTION("symple scull driver");

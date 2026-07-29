@@ -58,6 +58,30 @@ void static scull_close(struct inode *inode, struct file *filp){
   return 0;
 }
 
+int static scull_trim(struct scull_dev *dev){
+
+  struct scull_qset * next = dev->data, * ptr;
+  int qset = dev->qset;
+  int i;
+
+  for(ptr = next; ;ptr!=NULL){
+    if (ptr->data){
+      for(int i = 0; i<qset; i++) kfree((ptr->data)[i]);
+      kfree(ptr->data);
+    }
+    next = ptr->next;
+    kfree(ptr);
+  }
+
+  dev->size = 0;
+  dev->quantum - scull_quantum;
+  dev->qset = scull_qset;
+  dev->data = NULL;
+  return 0;
+
+  
+}
+
 static int scull_init(void){
   dev_t dev_number = 0;
   int result;

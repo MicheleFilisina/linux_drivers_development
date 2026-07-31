@@ -18,6 +18,11 @@ the array (aka quantum_set) is SCULL_QSET long.
 #define SCULL_QSET 1000
 #endif
 
+/* Prototypes for all shared functions */
+int scull_trim(struct scull_dev *dev);
+ssize_t scull_read(struct file *filp, char __user *buf, size_t count, loff_t *f_pos);
+ssize_t scull_write(struct file *filp, char __user *buf, size_t count, loff_t *f_pos);
+scull_qset * scull_follow(struct scull_dev * dev, int item);
 
 struct scull_qset {
   void ** data;

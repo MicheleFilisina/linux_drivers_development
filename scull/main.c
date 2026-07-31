@@ -56,11 +56,12 @@ scull_qset * scull_follow(struct scull_dev * dev, int item){
 
 static ssize_t scull_read(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos){
   struct scull_dev *dev = filp->private_data;
-  struct scull_qset *ptr = dev->data;
+  struct scull_qset *ptr;
   int quantum = dev->quantum;
   int qset = dev->qset;
   int itemseize = quantum * qset; /* how many bytes in a qset*/
   int item, s_pos, q_pos, rest;
+  ssize_t retval = 0;
 
   if (down_interruptible(&dev->sem))
        return -ERESTARTSYS;
@@ -70,13 +71,33 @@ static ssize_t scull_read(struct file *filp, const char __user *buf, size_t coun
        	count = dev->size - *f_pos;
 
    
-   item = (long)*f_pos / itemsize;
-   rest = (long)*f_pos % itemsize;
+   item = (long)*f_pos / itemsize; 
+   rest = (long)*f_pos % itemsize; // position inside the quantum
    s_pos = rest / quantum; // the position of the quantum (the element )in the qset (the array)
-   q_pos = rest % quantum; // leftover quantums (elements) in the array
+   q_pos = rest % quantum; // the position in the quantum
 
-   
+   ptr = scull_follow(dev, item);
+
+   if(ptr == NULL || ptr->data==NULL || ptr->data[s_pos]==NULL) goto out;
+
+   if (count > quantum - q_pos) count = quantum - q_pos; // can only read one quantum at a time
+
+   if(copy_to_user(buf, ptr->data[s_pos] + q_pos, count)){
+     retval = -EFAULT;
+     goto out;
+   }
+
+   *f_pos += count;
+   retval = count;
+
+ out:
+   up(&dev->sem);
+   return retval;
      
+}
+
+static ssize_t scull_qrite(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos){
+  
 }
 
 

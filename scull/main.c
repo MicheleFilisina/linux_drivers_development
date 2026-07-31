@@ -3,6 +3,7 @@
 #include <linux/kernel.h> /*kernel version of the standard library*/
 #include <linux/fs.h> /*structures and function pointers to menage files*/
 #include <linux/cdev.h> /*define a structure to rapresent a char device*/
+#include <asm/uaccess.h> /*to deference a user-space buffer*/
 
 #Include "scull.h" // file with all definitions and macros
 
@@ -28,12 +29,60 @@ struct file_operations scull_fops = {
   .release = scull_release,
 };
 
+// return the pointer to dev->data list item-th element
+scull_qset * scull_follow(struct scull_dev * dev, int item){
+  
+  struct scull_qset *ptr = dev->data;
 
+  //we initialize the first element of the list
+  if(ptr==NULL){
+    ptr = kmalloc(sizeof(struct scull_qset), GFP_KERNEL);
+    if(ptr == NULL) return NULL; //allocation didn't end well
+    memset(ptr, 0, sizeof(struct scull_qset));
+  };
+   
+  while(item--){
+    if (ptr->next == NULL) {
+      ptr->next =  kmalloc(sizeof(struct scull_qset), GFP_KERNEL);
+      if(ptr==NULL) return NULL; //allocation didn't end well
+      memset(ptr, 0, sizeof(struct scull_qset));
+    }
+    ptr = ptr->next;
+  }
+
+  return ptr;
+  
+}
+
+static ssize_t scull_read(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos){
+  struct scull_dev *dev = filp->private_data;
+  struct scull_qset *ptr = dev->data;
+  int quantum = dev->quantum;
+  int qset = dev->qset;
+  int itemseize = quantum * qset; /* how many bytes in a qset*/
+  int item, s_pos, q_pos, rest;
+
+  if (down_interruptible(&dev->sem))
+       return -ERESTARTSYS;
+   if (*f_pos >= dev->size)
+       	goto out;
+   if (*f_pos + count > dev->size)
+       	count = dev->size - *f_pos;
+
+   
+   item = (long)*f_pos / itemsize;
+   rest = (long)*f_pos % itemsize;
+   s_pos = rest / quantum; // the position of the quantum (the element )in the qset (the array)
+   q_pos = rest % quantum; // leftover quantums (elements) in the array
+
+   
+     
+}
 
 
 static void setup_cdev(struct scull_dev *dev, int index){
   int err;
-  int devno = MKDEV(scull_major, scull_minor + index1);
+  int devno = MKDEV(scull_major, scull_minor + index);
 
   cdev_init(&dev->cdev, &scull_fops);
   dev->cdev.owner = THIS_MODULE;
@@ -48,7 +97,7 @@ static void scull_open(struct inode *inode, struct file *filp){
   filp->private_data = dev;
 
   // Reset the data of the device to 0 if open was write-only
-  if((filp->f_flags & O_ACCMODE) == _WRONLY){
+  if((filp->f_flags & O_ACCMODE) == O_WRONLY){
     scull_trim(dev);
   }
   return 0;
@@ -56,6 +105,30 @@ static void scull_open(struct inode *inode, struct file *filp){
 
 void static scull_close(struct inode *inode, struct file *filp){
   return 0;
+}
+
+int static scull_trim(struct
+		      scull_dev *dev){
+
+  struct scull_qset * next, * ptr;
+  int qset = dev->qset;
+
+  for(ptr = dev->data; ptr!=NULL; ptr = next){
+    if (ptr->data){
+      for(int i = 0; i<qset; i++) kfree((ptr->data)[i]);
+      kfree(ptr->data);
+    }
+    next = ptr->next;
+    kfree(ptr);
+  }
+
+  dev->size = 0;
+  dev->quantum = scull_quantum;
+  dev->qset = scull_qset;
+  dev->data = NULL;
+  return 0;
+
+  
 }
 
 static int scull_init(void){
